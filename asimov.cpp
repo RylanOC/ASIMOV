@@ -15,66 +15,46 @@
 #include "opencv2/videoio.hpp"
 #include "opencv2/highgui.hpp"
 
-using namespace std;
-using namespace cv;
-using namespace cv::cuda;
 
 //forward declarations
-cv::cuda::GpuMat processImage(Mat &img);
-void blur(Mat &img);
-Rect findContours(Mat &img);
+cv::cuda::GpuMat processImage(cv::Mat &img);
+void blur(cv::Mat &img);
+cv::Rect findContours(cv::Mat &img);
 
 int main(int argc, const char** argv)
 {
-    VideoCapture cap;
+    cv::VideoCapture cap;
 
-    cout << "opening camera...\n";
     cap.open(0);
 
     if (!cap.isOpened())
     {
-        cerr << "can not open camera or video file" << endl;
+        std::cerr << "can not open camera or video file" << std::endl;
         return -1;
     }
-    cout << "done.\n";
-
-    cout << "creating/reading to frame...\n";
-    Mat frame;
+    cv::Mat frame;
     cap >> frame;
-    cout << "done.\n";
 
-    cout << "creating GPU Mat frame...\n";
-    GpuMat d_frame(frame);
-    cout << "done.\n";
+    cv::cuda::GpuMat d_frame(frame);
 
-    cout << "creating MOG pointers...\n";
-    Ptr<BackgroundSubtractor> mog2 = cuda::createBackgroundSubtractorMOG2();
-    cout << "done.\n" << std::endl;
+    cv::Ptr<cv::BackgroundSubtractor> mog2 = cv::cuda::createBackgroundSubtractorMOG2();
 
-    cout << "creating GPU Mat objects...\n";
-    GpuMat d_MOG2_fgmask;
-    GpuMat d_MOG2_fgimg;
-    GpuMat d_MOG2_bgimg;
-    cout << "Done.\n";
+    cv::cuda::GpuMat d_MOG2_fgmask;
+    cv::cuda::GpuMat d_MOG2_fgimg;
+    cv::cuda::GpuMat d_MOG2_bgimg;
 
-    cout << "creating MOG2 (non GPU) Mat objects...\n";
-    Mat MOG2_fgmask;
-    Mat MOG2_fgimg;
-    Mat MOG2_bgimg;
-    cout << "done.\n";
+    cv::Mat MOG2_fgmask;
+    cv::Mat MOG2_fgimg;
+    cv::Mat MOG2_bgimg;
 
-    cout << "applying MOGs...\n";
     mog2->apply(d_frame, d_MOG2_fgmask);
-    cout << "done.\n" << endl;
 
-    cout << "creating window objects...\n";
-
-    namedWindow( "Contours", WINDOW_AUTOSIZE );
-    cout << "done.\n";
+    cv::namedWindow( "Contours", cv::WINDOW_AUTOSIZE );
+    cv::namedWindow( "Edges", cv::WINDOW_AUTOSIZE );
     for(;;)
     {
         cap >> frame;
-        Mat backup_frame = frame;
+        cv::Mat backup_frame = frame;
 
         if (frame.empty())
             break;
@@ -82,7 +62,7 @@ int main(int argc, const char** argv)
         //process image to make further computations easier
         d_frame = processImage(frame);
 
-        int64 start = cv::getTickCount();
+       	int64 start = cv::getTickCount();
 
         //update the model
         mog2->apply(d_frame, d_MOG2_fgmask);
@@ -92,7 +72,7 @@ int main(int argc, const char** argv)
         std::cout << "FPS : " << fps << std::endl;
 
         d_MOG2_fgimg.create(d_frame.size(), d_frame.type());
-        d_MOG2_fgimg.setTo(Scalar::all(0));
+        d_MOG2_fgimg.setTo(cv::Scalar::all(0));
         d_frame.copyTo(d_MOG2_fgimg, d_MOG2_fgmask);
 
         d_MOG2_fgmask.download(MOG2_fgmask);
@@ -100,13 +80,13 @@ int main(int argc, const char** argv)
 
         d_frame.download(frame);
 
-        Rect boundRect = findContours(MOG2_fgimg);
-	    Scalar color = Scalar(0, 255, 0);
-	    rectangle( backup_frame, boundRect.tl(), boundRect.br(), color, 2, 8, 0 );
+        cv::Rect boundRect = findContours(MOG2_fgimg);
+	    cv::Scalar color = cv::Scalar(0, 255, 0);
+	    cv::rectangle( backup_frame, boundRect.tl(), boundRect.br(), color, 2, 8, 0 );
 
-	    imshow("Contours", backup_frame);
+	    cv::imshow("Contours", backup_frame);
 
-        int key = waitKey(30);
+        int key = cv::waitKey(30);
         if (key == 27)
             break;
     }
@@ -115,7 +95,7 @@ int main(int argc, const char** argv)
 }
 
 //convert image to grayscale and apply Gaussian blur
-cv::cuda::GpuMat processImage(Mat &img)
+cv::cuda::GpuMat processImage(cv::Mat &img)
 {
 	cv::cuda::GpuMat gpu_img(img);
 	cv::cuda::cvtColor(gpu_img, gpu_img, CV_BGR2GRAY);
@@ -129,10 +109,10 @@ cv::cuda::GpuMat processImage(Mat &img)
 
 void blur(cv::Mat &img)
 {
-	Size ksize(21, 21);
+	cv::Size ksize(21, 21);
 	int sigma1 = 0;
 	//int sigma2 = 0;
-	Ptr<cuda::Filter> gauss = cuda::createGaussianFilter(img.type(), -1, ksize, sigma1);
+	cv::Ptr<cv::cuda::Filter> gauss = cv::cuda::createGaussianFilter(img.type(), -1, ksize, sigma1);
 
 	cv::cuda::GpuMat dst;
 	cv::cuda::GpuMat gpu_img(img);
@@ -142,36 +122,35 @@ void blur(cv::Mat &img)
     cv::GaussianBlur(img, img, ksize, sigma1);
 }
 
-Rect findContours(Mat &img)
+cv::Rect findContours(cv::Mat &img)
 {
-	RNG rng(12345);
+	cv::RNG rng(12345);
 	int thresh = 50;
-  	Mat threshold_output;
-  	vector<vector<Point> > contours;
-  	vector<Vec4i> hierarchy;
+  	cv::Mat threshold_output;
+  	std::vector<std::vector<cv::Point> > contours;
+  	std::vector<cv::Vec4i> hierarchy;
 
   	/// Detect edges using Threshold
-  	threshold( img, threshold_output, thresh, 255, THRESH_BINARY );
+  	cv::threshold( img, threshold_output, thresh, 255, cv::THRESH_BINARY );
 
   	// flood fill contours
   	//floodFill(threshold_output, Point(0, 0), Scalar(255));
 
-  	namedWindow( "Edges", CV_WINDOW_AUTOSIZE );
-  	imshow( "Edges", threshold_output );
+  	cv::imshow( "Edges", threshold_output );
   	/// Find contours
-  	findContours( threshold_output, contours, hierarchy, RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+  	cv::findContours( threshold_output, contours, hierarchy, cv::RETR_CCOMP, cv::CHAIN_APPROX_SIMPLE, cv::Point(0, 0) );
 
   	/// Approximate contours to polygons + get bounding rects and circles
- 	vector<Point> contours_poly;
-  	Rect boundRect;
-  	Point2f center;
+ 	std::vector<cv::Point> contours_poly;
+  	cv::Rect boundRect;
+  	cv::Point2f center;
 
  	// find the largest contour
  	double max_area = 0;
  	int max_index = 0;
  	for ( int i = 0; i < contours.size(); i++)
  	{
- 		double size = contourArea(contours[i]);
+ 		double size = cv::contourArea(contours[i]);
  		if (size > max_area)
  		{
  			max_area = size;
@@ -179,10 +158,10 @@ Rect findContours(Mat &img)
  		}
  	}
  
-    Mat drawing = Mat::zeros( threshold_output.size(), CV_8UC3 );
+    cv::Mat drawing = cv::Mat::zeros( threshold_output.size(), CV_8UC3 );
  	if (max_index > 0)
  	{
-	    boundRect = boundingRect( contours[max_index] );
+	    boundRect = cv::boundingRect( contours[max_index] );
 	}
   	return boundRect;
 }
